@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+*.sh
+*.exe
+#*.ipynb
+
+*.pt
+*.h5
+*.safetensors
+
+# Distribution / packaging
+.Python
+venv
+.venv
+.vscode
+.idea
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+#Documentation
+documentation/_build/*
+
+# Don't ignore .pt files in the exp_data directory
+!exp_data/*.pt
+
+#Other
+tensorboard_runs

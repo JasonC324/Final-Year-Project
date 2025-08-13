@@ -1,0 +1,408 @@
+% CONSTANT DATA INPUT ------------------------------------------------------------------------------
+%---------------------------------------------------------------------------------------------------
+output_filename = "Ta_Pt_BL_training_data_1000";
+dataset_size = 1000;
+overwrite_flag = 1; % Current doesn't do anything. Fix to allow reading of previously generated files. 
+gcm3_flag = 1; % For entering densities in g/cm3 instead of in f.u./A3
+prog_int = 10; % Print a progress message after every prog_int reflectivity calculations.  
+
+% Book value inputs
+Ta_dens_mean = 16.65; % Ta density book value
+Co_dens_mean = 8.9; % Co density book value
+Pd_dens_mean = 12.007; % Pd density book value
+Pt_dens_mean = 21.45; % Pt density book value
+SiO2_dens_mean = 2.65; % SiO2 density book value
+
+% Experiment params (constant)
+Xray_flag = 1; % Currently only works if =1 i.e. for Xrays. 
+I0 = 1; % Incident intensity
+bg = 0.0; % Background intensity
+lambda = 1.540593e-10; % X-ray wavelength (in m)
+sample_length = 10e-3; % In m
+beam_width = 0.01e-3; % In m (either gaussian sigma or square beam width). Note, large (~mm) widths will seriously affect performance. 
+footprint_type = 'plane'; % Either plane, gaussian, or square
+resolution_convolution = 0; % Turn resolution function on or off. 
+resolution_type = 'dq/q'; % Either const, dq/q, or custom. This defines sigma(2theta), where sigma is the width of a Gaussian convolution function (i.e. the x-axis errorbar). 
+resolution_convolution_range = 2; % Number of Gaussian sigmas to do the convolution over. Here the convolution is calculated over as many points as there are in this range in the pristine (res = 0) calculation of R.
+resolution = 0.005; % 2theta resolution in degrees (for const/custom) or dimensionless factor (for dq/q)
+%tth_data = []; % Loaded experimental 2theta data
+%R_data = []; % Loaded experimental R data
+%R_e_data = []; % Loaded experimental errorbars
+%res_data = []; % Loaded experimental resolutions (for 'custom' resolution_type).
+
+% Plot parameters
+theta_i_max = 4; % Maximum angle of incidence in degrees (theta, NOT 2theta)
+number_of_points = 600; % Total number of incident angles to calculate R(tth) over. 
+
+output = table('Size', [0, 7], 'VariableTypes', {'string', 'cell', 'cell', 'cell', 'cell', 'cell','cell'}, ...
+          'VariableNames', {'Sample_structure', 'Thicknesses (Å)', 'SLDs (Å-2)', 'Roughnesses (Å)', 'tth (deg)', 'Q (Å-1)', 'Intensity',});
+
+%---------------------------------------------------------------------------------------------------
+%---------------------------------------------------------------------------------------------------
+fprintf("-----------------------------------------")
+% Generate metadata string and print to the screen.
+LogicalStr = {'false', 'true'};
+meta_data = sprintf(['Fixed parameters:\n\t ' ...
+    '    I0: %g counts\n\t ' ...
+    '    bg: %g counts\n\t ' ...
+    '    lambda: %g m\n\t ' ...
+    '    Sample length: %g m\n\t ' ...
+    '    Beam width: %g m\n\t ' ...
+    '    Footprint type: %s\n\t ' ...
+    '    Resolution convolution?: %s\n\t ' ...
+    '    Resolution type: %s\n\t ' ...
+    '    Convolution range: %g sigma\n\t ' ...
+    '    Resolution: %g deg (const.) or percent (dq/q)\n\t ' ...
+    '    Max tth: %g deg\n\t ' ...
+    '    No. of points per dataset: %g'] ...
+    ,I0,bg,lambda,sample_length,beam_width,footprint_type,LogicalStr{resolution_convolution + 1},resolution_type,resolution_convolution_range,resolution,theta_i_max*2,number_of_points);
+disp(meta_data);
+
+fprintf("-----------------------------------------")
+
+fprintf('Generating data...\n')
+% Some constants
+m_e = 9.1093e-31; % Electron mass.
+epsilon_0 = 8.854188e-12; % Vacuum permittivity.
+c = 3e8; % Speed of light.
+h = 6.626e-34; % Planck's constant.
+e = 1.60217663e-19; % The elementary charge.
+r_e = (e^2)/(4*pi*epsilon_0*m_e*(c^2)); % The classical electron radius.
+
+tic; % Start a timer. 
+elapsed_times = [];
+for p = 1:dataset_size
+    if mod(p,prog_int) == 0 % For progress monitoring. 
+        elapsed_times(end+1) = toc;
+        %fprintf('%i of %i reflectivities calculated.\n',p,dataset_size);
+        remaining_time = mean(elapsed_times)*((dataset_size - p)/prog_int);
+        hours = floor(remaining_time/3600);
+        minutes = floor((remaining_time - hours*3600)/60);
+        seconds = floor(remaining_time - (hours*3600 + minutes*60));
+        fprintf('\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b%i:%i:%i remaining.\n',hours, minutes, seconds); % All the \b are backspaces, removing previous output text. 
+        tic
+    end
+% VARYING DATA INPUT %------------------------------------------------------------------------------
+%---------------------------------------------------------------------------------------------------
+    
+    % Randomly generate sample params (check bounds). 
+    Ta_t = (1 + (500 - 1).*rand(1)); % Ta thicknes, between 1 and 500 angstroms
+    Pt_t = (1 + (500 - 1).*rand(1)); % Pt thicknes, between 1 and 500 angstroms
+    
+    Ta_dens = Ta_dens_mean + 0.05*Ta_dens_mean*randn; % Ta density 5% variation.
+    Pt_dens = Pt_dens_mean + 0.05*Pt_dens_mean*randn; % Pt density 5% variation.
+    SiO2_dens = SiO2_dens_mean;
+    BL_dens = [Ta_dens Pt_dens]; 
+    sample_dens = [SiO2_dens BL_dens];
+
+    SiO2_sig = 8*rand; % SiO2 roughness up to 8 nm. 
+    if Ta_t > 120 % For thicker films, limit the roughness to 60 Angstroms. 
+        Ta_sig = (1 + (60 - 1).*rand(1));
+    else
+        Ta_sig = Ta_t*rand/2; % Ta roughenss up to half its thickness, but no more than 100 angstroms. 
+    end
+    
+    if Pt_t > 120 % For thicker films, limit the roughness to 60 Angstroms. 
+        Pt_sig = (1 + (60 - 1).*rand(1));
+    else
+        Pt_sig = Pt_t*rand/2; % Ta roughenss up to half its thickness, but no more than 100 angstroms. 
+    end
+
+    BL_sig = [Ta_sig Pt_sig];
+    sample_sig = [SiO2_sig BL_sig];
+    
+    %Build sample string and parameter arrays
+    Sample = sprintf("Si1O2/Ta(%f)/Pt(%f)",Ta_t,Pt_t);
+    Rho = sample_dens; % Layer densities beneath interface (f.u./Angstrom^3 or g/cm3).
+    Sigma = sample_sig; % Gaussian roughness of interface (angstroms).
+
+%---------------------------------------------------------------------------------------------------
+%---------------------------------------------------------------------------------------------------
+    
+% CALCULATION -------------------------------------------------------------------------------
+%--------------------------------------------------------------------------------------------
+    
+    % Build the stack from the sample string
+    Stack = sample2stack(Sample);
+    
+    % Initialise some parameters we can change without changing the inputs.
+    if gcm3_flag == 0
+        rho = Rho*1e30; % Convert rho to f.u./m3.
+    else
+        rho = Rho;
+    end
+    sigma = Sigma*1e-10; % Covnert sigma to m
+    sigma(sigma==0) = 1e-11; % Disallow zeros in roughness to avoid numerical error. 
+    t = (str2double(Stack(2,:)))*1e-10; % Thickness comes from the sample string. 
+    max_theta_i = theta_i_max; % Maximum theta (not 2theta) to calculate over.
+    
+    % Some constants (given in SI)
+    m_e = 9.1093e-31; epsilon_0 = 8.854188e-12; c = 3e8; h = 6.626e-34; e = 1.60217663e-19; r_e = (e^2)/(4*pi*epsilon_0*m_e*(c^2));
+    % Periodic table for atomic masses
+    pt = readtable('pt.csv');
+    
+    % Some derived parameters
+    E = h*c/lambda; % X-ray energy (in Joules)
+    if resolution_convolution == 1 % Add some extra points for the convolution if doing one. 
+        if strcmp(resolution_type, 'const') == 1
+            new_max_theta_i = max_theta_i + 2*resolution_convolution_range*resolution;  
+        elseif strcmp(resolution_type, 'dq/q') == 1
+            new_max_theta_i = max_theta_i + 2*resolution_convolution_range*resolution*max_theta_i;
+        else % For custom resolutions
+            new_max_theta_i = max_theta_i + 2*resolution_convolution_range*res_data(end);
+        end
+        N = number_of_points*(new_max_theta_i/max_theta_i);
+        max_theta_i = deg2rad(new_max_theta_i);
+    else
+        max_theta_i = deg2rad(max_theta_i);
+        N = number_of_points;
+    end
+    theta_i = linspace(0,max_theta_i,N); % Angle of incidence (array)
+    k = 2*pi/lambda; % X-ray wavevector (ambient)
+    kz = k*sin(theta_i); % Z component of k (ambient) (array)
+    Q = 2*kz;
+    
+    % Calculate the geometric factor (beam footprint)
+    g = zeros(size(theta_i)); % Geometric factor 
+    switch(footprint_type)
+        case 'plane'
+            g = ones(size(theta_i)); % Effectively no geom factor for infinate plane wave.
+        case 'gaussian'
+            beam_points = round(5e8*beam_width); % Determines how many points to include in beam profile. The prefactor may be reduced for performance, BUT may introduce artefacts. 
+            w = linspace(-5*beam_width,5*beam_width,beam_points); % Radial coordinate of beam (define to 5*beam width)
+            Iw = normpdf(w,0,beam_width); % Gaussian profile
+            total_flux = cumtrapz(w,Iw); % Total flux in beam. This is an array, so cumulative. 
+            for i = 1:length(theta_i) % For each incident angle 
+                % Calculate w coordinate at sample edges.
+                [val_l, idx_l] = min(abs(w - (-0.5*sample_length.*sin(theta_i(i))))); % element of w closest to -0.5Lsin(theta)
+                [val_h, idx_h] = min(abs(w - (0.5*sample_length.*sin(theta_i(i))))); % element of w closest to 0.5Lsin(theta)
+                % Calculate the flux on the sample. 
+                flux_on_sample = total_flux(idx_h) - total_flux(idx_l); % Use the fact that total_flux is cumulative, so no need to re-do integration with new limits.
+                g(i) = flux_on_sample./total_flux(end);
+            end
+            %figure; plot(theta_i,g,'k-'); % For checking the footprint. 
+        case 'square'
+            g = ones(size(theta_i));
+            g(theta_i<asin(2*beam_width/sample_length)) = (sample_length/(2*beam_width))*sin(theta_i(theta_i<asin(2*beam_width/sample_length)));
+    end
+    
+    % Build the array of X-ray scattering lengths from the library
+    f1 = zeros(length(Stack),1); f2 = zeros(length(Stack),1); % Atomic form factors f1 and f2
+    if Xray_flag == 1 % If dealing with Xrays
+        cd sf % Move to sf folder
+    else % For dealing with neutrons
+    end
+    
+    for i = 1:length(Stack) % For each layer
+        sld_data = [];
+        try % Try to retrieve the layer material as a single element
+            filename = strcat(lower(Stack(1,i)),'.nff'); % Build the filename
+            sld_file = fopen(filename); % Open the file
+            sld_data = readtable(filename,'FileType','text'); % Read in the data
+            energy_array = repmat(E*6.242e18,[length(sld_data.Var1) 1]); % Build an array of E repeated (in ev)
+            [lookup_energy_delta, energy_index] = min(abs(energy_array-sld_data.Var1));
+            % Interpolate to get f1 and f2
+            if sld_data.Var1(energy_index) - E*6.242e18 > 0 && energy_index ~= 1 % If our energy is below the closest library entry
+                material_f1 = (sld_data.Var2(energy_index) - sld_data.Var2(energy_index-1))*((sld_data.Var1(energy_index) - E*6.242e18)/(sld_data.Var1(energy_index) - sld_data.Var1(energy_index-1))) + sld_data.Var2(energy_index-1);
+                material_f2 = (sld_data.Var3(energy_index) - sld_data.Var3(energy_index-1))*((sld_data.Var1(energy_index) - E*6.242e18)/(sld_data.Var1(energy_index) - sld_data.Var1(energy_index-1))) + sld_data.Var3(energy_index-1);
+            elseif sld_data.Var1(energy_index) - E*6.242e18 < 0 && energy_index ~= length(energy_array) % If it is above
+                material_f1 = (sld_data.Var2(energy_index) - sld_data.Var2(energy_index+1))*((E*6.242e18 - sld_data.Var1(energy_index))/(sld_data.Var1(energy_index+1) - sld_data.Var1(energy_index))) + sld_data.Var2(energy_index);
+                material_f2 = (sld_data.Var3(energy_index) - sld_data.Var3(energy_index+1))*((E*6.242e18 - sld_data.Var1(energy_index))/(sld_data.Var1(energy_index+1) - sld_data.Var1(energy_index))) + sld_data.Var3(energy_index);
+            else % If our energy is bang on, or we're at the extremeties of the library file
+                material_f1 = sld_data.Var2(energy_index);
+                material_f2 = sld_data.Var3(energy_index);
+            end
+            f1(i) = material_f1;
+            f2(i) = material_f2;
+            % Convert the density if entered in g/cm3
+            if gcm3_flag == 1
+                idx = strcmpi(pt.Symbol, Stack(1,i));
+                material_mass_number = pt.AtomicMass(idx);
+                rho(i) = (rho(i)*(1e3))/((1.66054e3)*(material_mass_number))*1e30;
+            end
+            fclose(sld_file);
+        catch % Catch for things like Si1O2, where the layer string must be parsed and processed. 
+            elements = regexp(Stack(1,i),'\d','Split'); % Grabs the letters
+            elements(end) = [];
+            material_f1 = zeros(length(elements),1);
+            material_f2 = zeros(length(elements),1);
+            material_mass_number = zeros(length(elements),1);
+            numerals = regexp(Stack(1,i),'\d+','Match'); % Grabs the numbers
+            for m = 1:length(elements)
+                filename = strcat(lower(elements(m)),'.nff'); % Build the filename
+                try
+                    sld_file = fopen(filename); % Open the file
+                    sld_data = readtable(filename,'FileType','text'); % Read in the data
+                catch % In case of typos etc
+                    fprintf('Matrerial %s not found in database',filename);
+                    return % Break out of script. 
+                end
+                energy_array = repmat(E*6.242e18,[length(sld_data.Var1) 1]); % Build an array of E repeated (in ev)
+                [lookup_energy_delta, energy_index] = min(abs(energy_array-sld_data.Var1));
+                % Interpolate to get f1 and f2
+                if sld_data.Var1(energy_index) - E*6.242e18 > 0 && energy_index ~= 1 % If our energy is below the closest library entry
+                    material_f1(m) = (sld_data.Var2(energy_index) - sld_data.Var2(energy_index-1))*((sld_data.Var1(energy_index) - E*6.242e18)/(sld_data.Var1(energy_index) - sld_data.Var1(energy_index-1))) + sld_data.Var2(energy_index-1);
+                    material_f2(m) = (sld_data.Var3(energy_index) - sld_data.Var3(energy_index-1))*((sld_data.Var1(energy_index) - E*6.242e18)/(sld_data.Var1(energy_index) - sld_data.Var1(energy_index-1))) + sld_data.Var3(energy_index-1);
+                elseif sld_data.Var1(energy_index) - E*6.242e18 < 0 && energy_index ~= length(energy_array) % If it is above
+                    material_f1(m) = (sld_data.Var2(energy_index) - sld_data.Var2(energy_index+1))*((E*6.242e18 - sld_data.Var1(energy_index))/(sld_data.Var1(energy_index+1) - sld_data.Var1(energy_index))) + sld_data.Var2(energy_index);
+                    material_f2(m) = (sld_data.Var3(energy_index) - sld_data.Var3(energy_index+1))*((E*6.242e18 - sld_data.Var1(energy_index))/(sld_data.Var1(energy_index+1) - sld_data.Var1(energy_index))) + sld_data.Var3(energy_index);
+                else % If our energy is bang on, or we're at the extremeties of the library file
+                    material_f1(m) = sld_data.Var2(energy_index);
+                    material_f2(m) = sld_data.Var3(energy_index);
+                end
+                fclose(sld_file);
+                % Find the densities if entered in g/cm3
+                if gcm3_flag == 1
+                    idx = strcmpi(pt.Symbol, elements(m));
+                    material_mass_number(m) = pt.AtomicMass(idx);
+                end
+            end
+            if gcm3_flag == 1
+                material_mass_number_total = sum(transpose(material_mass_number).*str2double(numerals));
+                rho(i) = (rho(i)*(1e3))/((1.66054e3)*(material_mass_number_total))*1e30;
+            end
+    
+            f1(i) = sum((material_f1.*transpose(str2double(convertCharsToStrings(numerals)))));
+            f2(i) = sum((material_f2.*transpose(str2double(convertCharsToStrings(numerals)))));
+        end
+    end
+    if Xray_flag == 1
+        b = r_e*(f1 + 1i*f2);
+    else
+        b = f1 + 1i*f2;
+    end
+    cd .. % Move out of sf folder
+    
+    % Initialize some arrays
+    n = zeros(length(Stack),1);
+    alpha = zeros(length(Stack),1);
+    r = zeros(length(Stack),1); % Reflectivity from interface, including multiple reflections
+    rprime = zeros(length(Stack),1); % Reflectivity from interface, not inclusing multiple reflections
+    beta = zeros(length(Stack),1); % Imaginaty part of n
+    delta = zeros(length(Stack),1); % Real part of 1-n (multiplied by -1)
+    kzi = zeros(length(Stack),1); % z-component of k in layer i
+    Qi = zeros(length(Stack),1); % Wavevector transfer in layer i
+    
+    % Calculate refractive indices
+    for i = 1:length(Stack) % For each layer
+        n(i) = 1 - (rho(i).*b(i)*lambda^2/(2*pi)); % Calculate the refractive indices of the layer beneath the interface
+        beta(i) = -1*(imag(n(i)-1)); % CHECK IF THE -1* SHOULD BE ABSOLUTE VALUE
+        delta(i) = -1*real(n(i)-1);
+    end
+    
+    % Calculate R(2theta). This is the Parratt recursion bit. 
+    % i iterates over layers, j iterates over incident angles
+    R = zeros(length(theta_i),1);
+    for j = 1:length(theta_i) % For each angle of incidence
+        % Do the Parratt recursion
+        for i = 1:length(Stack)
+            kzi(i) = sqrt(kz(j)^2 - 2*delta(i)*k^2 + 2*1i*beta(i)*k^2);
+            Qi(i) = sqrt(Q(j)^2 - 8*delta(i)*k^2 + 8*1i*beta(i)*k^2);
+        end
+        for i = 1:length(Stack)
+            if i == length(Stack) % If dealing with the topmost interface
+                rprime(i) = (2*kz(j)-Qi(i))/(2*kz(j)+Qi(i))*(exp((-2*sigma(i)^2)*kz(j)*kzi(i)));
+            else % For all other interfaces
+                rprime(i) = (Qi(i+1)-Qi(i))/(Qi(i+1)+Qi(i))*(exp((-2*sigma(i)^2)*kzi(i+1)*kzi(i)));
+            end
+            if i == 1 % For the substate, the total reflectivity is just that from this interface
+                r(i) = rprime(i);
+            else % For subsequent layers (moving upwards), the reflectivity includes multiple reflections from layers beneath. 
+                r(i) = (rprime(i) + r(i-1)*exp(2*1i*kzi(i)*t(i))) / (1 + rprime(i)*r(i-1)*exp( 2*1i*kzi(i)*t(i)));
+            end
+        end
+        R(j) = I0*abs(r(end))^2 + bg;
+    end
+    
+    % Corrrect by geometric factor (i.e. beam footprint)
+    R = R.*transpose(g);
+    
+    if resolution_convolution == 1
+        % Apply resolution convolution
+        switch resolution_type
+            case 'const'
+                sigma_theta = (deg2rad(resolution./2))*ones(size(theta_i)); % Define the width of the Gaussian kernel (divide by 2 for theta, not 2theta)
+            case 'dq/q'
+                sigma_theta = (resolution)*theta_i;
+            case 'custom'
+                sigma_theta = interpt1(tth_data,res_data,theta_i); % Interpolate loaded experimental resolutions onto the simulated data. 
+        end
+        R_conv = zeros(size(R)); % Initialize the output
+        dtheta = mean(diff(theta_i)); % theta spacing
+        % Perform the convolution
+        for i = 1:length(theta_i) % For each point in R
+            sigma = sigma_theta(i); % Define Gaussian kernel
+            kernel_range = -1*resolution_convolution_range*sigma : dtheta : resolution_convolution_range*sigma; % Truncate at specified number of sigma
+            if mod(length(kernel_range),2)==0 % Make sure the kernel length is odd so as to be symmetric about theta. 
+                n = 1;
+                while mod(length(kernel_range),2)==0 % Nudge the range wide by half an increment until odd number of increments in resolution range
+                    kernel_range = (-1*resolution_convolution_range*sigma)-n*(dtheta/2) : dtheta : (resolution_convolution_range*sigma)+n*(dtheta/2);
+                    n = n+1;
+                end
+            end
+            gaussian_kernel = exp(-0.5 * (kernel_range / sigma).^2); 
+            gaussian_kernel = transpose(gaussian_kernel / sum(gaussian_kernel)); % Transpose and normalize
+    
+            if isscalar(gaussian_kernel) % Deals with edge case where res*conv_range is smaller than dtheta (i.e. only one point on convolving gaussian)
+                R_conv(i) = R(i); 
+            else % Otherwise
+                % Find the valid indices in R
+                idx_min = max(1, i - floor(length(gaussian_kernel)/2));
+                idx_max = min(length(R), i + floor(length(gaussian_kernel)/2));
+                R_segment = R(idx_min:idx_max); % The chunk of R local to theta which we will integrate over. 
+                % Convolve locally
+                if i > floor(length(gaussian_kernel)/2) && i <= length(theta_i)-floor(length(gaussian_kernel)/2) % If gaussian fully fits within R segment
+                    R_conv(i) = sum(R_segment.*gaussian_kernel);
+                elseif i <= floor(length(gaussian_kernel)/2) % For start of R curve
+                    R_conv(i) = sum(R_segment.*gaussian_kernel((length(gaussian_kernel)-(idx_max-idx_min)):length(gaussian_kernel)));
+                else % For end of R curve. Technically redundant as we added extra points to R so as to do the full convolution. 
+                    R_conv(i) = sum(R_segment.*gaussian_kernel(1:(idx_max-idx_min)+1));
+                end
+            end
+        end
+        theta_i = theta_i(theta_i<=deg2rad(theta_i_max));
+        R_conv = R_conv(theta_i<=deg2rad(theta_i_max));
+    else % If not doing a convolution.
+        R_conv = R;
+    end
+    
+    % Plot
+    %plot(2*rad2deg(theta_i),transpose(R_conv),'-','LineWidth',1); xlabel('2θ (deg)'); ylabel('Intensity'); colororder reef;
+    %set (gca,'YScale','log'); hold on;
+    output(p, :) = {Sample, {t/(1e-10)}, {(transpose(b).*rho*(1e-30)/r_e)*2.81794e-5}, {Sigma}, {transpose(2*rad2deg(theta_i))}, {(transpose(4*pi*sin(theta_i)/lambda))/1e10}, {R_conv}};
+end
+
+% Save .mat file
+save(strcat(output_filename,".mat"),"output");
+
+% Convert to pandas dataframe
+output_pd = py.pandas.DataFrame(output);
+% Save panda array as pickle file
+output_pd.to_pickle(strcat(output_filename,"_pickle"));
+
+% Print metadata to text file. 
+fprintf("-----------------------------------------")
+date_time = string(datetime);
+extra_meta_data = sprintf("Date/time: %s\n" + ...
+    "Reflectivity data generated for %g parameter sets.\n" ...
+    ,datetime,dataset_size);
+meta_data = strcat(extra_meta_data,meta_data);
+metadata_filename = strcat(output_filename,"_meta.txt");
+fid = fopen(metadata_filename,'wt');
+fprintf(fid, meta_data);
+fclose(fid);
+fprintf('Metadata printed to %s.', metadata_filename);
+
+% While we're at it... print the whole of this script to another text file.
+fprintf("-----------------------------------------")
+scriptFile = strcat(mfilename,".m"); % Get the full path of the script
+fileContents = fileread(scriptFile); % Read the script itself
+script_filename = strcat(output_filename,"_script.txt"); % Name of the output text file
+fid = fopen(script_filename, 'w'); % Open file for writing
+fprintf(fid, '%s', fileContents); % Print the script contents to the file
+fclose(fid); % Close the file
+fprintf('Script printed to %s.', script_filename);
+
+fprintf("-----------------------------------------")
+% Success message. 
+fprintf('Reflectivity data generated for %i parameter sets.\nProcess complete.',dataset_size);
