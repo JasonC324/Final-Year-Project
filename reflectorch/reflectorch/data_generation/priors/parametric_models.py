@@ -553,8 +553,8 @@ class CustomMultilayerModel(BasicMultilayerModel1):
     NAME = 'repeating_multilayer_abc'
 
     PARAMETER_NAMES = (
-        "d_full_rel",            # Relative total film thickness (used to center sigmoid envelope)
-        "rel_sigmas",             # Width of sigmoid envelope
+        "d_sig",            # Relative total film thickness (used to center sigmoid envelope)
+        "width_sigmas",             # Width of sigmoid envelope
         "k",                      # steepness of second sigmoid
         "d_A", "d_B", "d_C",      # Absolute thicknesses of A, B, C
         "s_A", "s_B", "s_C",      # Roughnesses of A, B, C
@@ -798,8 +798,8 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
     n = d_full_rel_max
 
     (
-        d_full_rel,              # Relative total film thickness (used to center sigmoid envelope)
-        rel_sigmas,              # Width of sigmoid envelope
+        d_sig,              # Relative total film thickness (used to center sigmoid envelope)
+        width_sigmas,              # Width of sigmoid envelope
         k,                       # steepness of second sigmoid
         d_A, d_B, d_C,           # Absolute thicknesses of A, B, C
         s_A, s_B, s_C,           # Roughnesses of A, B, C
@@ -818,7 +818,7 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
     r_positions = total_layers - torch.arange(total_layers, dtype=parametrized_model.dtype, device=parametrized_model.device)[None].repeat(batch_size, 1)
 
     r_modulations = torch.sigmoid(
-        -(r_positions - 3 * d_full_rel[..., None]) / rel_sigmas[..., None]
+        -(r_positions - d_sig[..., None]) / width_sigmas[..., None]
     ) 
 
     sld_A_rep = sld_A[:, None].repeat(1, int(total_repeats))
@@ -829,7 +829,7 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
     center_sld = slds_init.mean()
 
     k = k[..., None]
-    squeeze = 1 - torch.sigmoid(-k * (r_positions - 3 * d_full_rel[..., None]))
+    squeeze = 1 - torch.sigmoid(-k * (r_positions - d_sig[..., None]))
 
     slds_squeezed = center_sld + squeeze * (slds_init - center_sld)
 

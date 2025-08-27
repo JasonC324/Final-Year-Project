@@ -2,6 +2,7 @@ from reflectorch.data_generation.dataset import BasicDataset
 import torch
 from torch import Tensor
 import itertools
+import random
 
 from typing import Dict, Union
 from reflectorch.data_generation.priors import BasicParams
@@ -13,10 +14,9 @@ BATCH_DATA_TYPE = Dict[str, Union[Tensor, BasicParams]]
 class InputPreMadeDataset(BasicDataset,TrainerCallback):
     def __init__(
         self, q_values, curves, scaled_curves, params, scaled_params, scaled_bounds, device=None, dtype=None):
-        prior_sampler1 = SubpriorParametricSampler.__init__()
         super().__init__(
             q_generator = None,
-            prior_sampler = prior_sampler1,
+            prior_sampler = None,
             intensity_noise = None,
             q_noise = None,
             curves_scaler = None,
@@ -58,10 +58,13 @@ class InputPreMadeDataset(BasicDataset,TrainerCallback):
 
 
         self.scaled_bounds = scaled_bounds.to(device=device, dtype=dtype)
-        self._iter = itertools.cycle(range(len(self.q_values)))
+        self._iter = self._shuffled_cycle()
+
+        self.pos = 0
+        self.n = self.scaled_bounds.shape[0]
 
     def start_training(self, trainer):
-        self._iter = itertools.cycle(range(len(self.q_values)))
+        self._iter = self._shuffled_cycle()
 
     def end_batch(self, trainer, batch_num):
         return False
@@ -69,16 +72,28 @@ class InputPreMadeDataset(BasicDataset,TrainerCallback):
     def get_batch(self, batch_size: int)-> BATCH_DATA_TYPE:
         index = [next(self._iter) for _ in range(batch_size)]
         batch_data = {}
-        print(index)
 
         batch_data['params'] = self.params[index]
         batch_data['scaled_params'] = self.scaled_params[index]
         batch_data['q_values'] = self.q_values[index]
         batch_data['scaled_curves'] = self.scaled_curves[index]
-        batch_data['scaled_bounds'] = self.scaled_bounds.unsqueeze(0).repeat(batch_size, 1) 
+        batch_data['scaled_bounds'] = self.scaled_bounds[index]
         batch_data['curves'] = self.curves[index]
+
+        self.pos = self.pos + batch_size
+        if self.pos >= self.n:
+            self._iter = self._shuffled_cycle()
+            self.pos = 0
 
         return batch_data
     
     def __len__(self):
         return len(self.scaled_curves)
+    
+    def _shuffled_cycle(self):
+        n = self.params.shape[0]
+        while True:
+            indices = list(range(n))
+            random.shuffle(indices)
+            for idx in indices:
+                yield idx
