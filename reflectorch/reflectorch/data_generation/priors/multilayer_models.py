@@ -370,7 +370,7 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
     center_sld = slds_init.mean()
 
     k = k[..., None]
-    squeeze = 1 - torch.sigmoid(-k * (r_positions - d_sig[..., None]))
+    squeeze = 1 - torch.sigmoid(k * (r_positions - d_sig[..., None]))
     slds_squeezed = center_sld + squeeze * (slds_init - center_sld)
 
     slds_final = slds_squeezed * r_modulations

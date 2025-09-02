@@ -32,13 +32,18 @@ dset:
       n_q_range: [128, 128]
       device: 'cuda'
       
+  #intensity_noise:
+  #  cls: GaussianExpIntensityNoise
+  #  kwargs:
+  #    relative_errors: [0.01, 0.3]
+  #    consistent_rel_err: false
+  #    apply_shift: true
+  #    shift_range: [-0.3, 0.3]
+  #    add_to_context: true
   intensity_noise:
-    cls: GaussianExpIntensityNoise
+    cls: BackgroundNoise
     kwargs:
-      relative_errors: [0.01, 0.3]
-      consistent_rel_err: false
-      apply_shift: true
-      shift_range: [-0.3, 0.3]
+      background_range: [1.0e-10, 1.0e-8]
       add_to_context: true
       
   curves_scaler:

@@ -44,4 +44,3 @@ class RealDataTrainer(Trainer):
 
         return {"loss": loss}
 
-

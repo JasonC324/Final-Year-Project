@@ -94,7 +94,6 @@ def load_scale_data(folder_path, train_split = 0.95):
         data_file = pickle.load(f)
 
     print(data_file.columns)
-    print(data_file.iloc[0])
 
     curves = []
     thickness_array = []
@@ -108,6 +107,8 @@ def load_scale_data(folder_path, train_split = 0.95):
         thicknesses = np.array(row['Thicknesses (Å)'])[1:]
         slds = np.array(row['SLDs (Å-2)'])
         slds = slds.real.astype(np.float32)
+        slds = slds * 1e6
+        roughnesses = np.array(row['Roughnesses (Å)'])
         roughnesses = np.array(row['Roughnesses (Å)'])
 
         curves.append(intensity)
