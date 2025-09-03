@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from sklearn.model_selection import train_test_split
 
-def scale_params(thickness_array,roughness_array,slds_array):
+def scale_params(thickness_array,roughness_array,slds_array,background_array):
     roughness_min = 0.0
     roughness_max = 60.0
 
@@ -12,6 +12,8 @@ def scale_params(thickness_array,roughness_array,slds_array):
     sld_max = slds_array.max()
 
     thickness_min, thickness_max = 0.0, 500.0
+
+    background_min, background_max = 1e-7, 1e-5
 
     print(roughness_min)
     print(roughness_max)
@@ -26,20 +28,26 @@ def scale_params(thickness_array,roughness_array,slds_array):
     slds_scaled = (slds_array - sld_min) / (sld_max - sld_min)
     slds_scaled = 2.0 * (slds_scaled - 0.5)
 
+    background_scaled = (background_array - background_min) / (background_max - background_min)
+    background_scaled = 2.0 * (background_scaled - 0.5)
+
     thicknesses_scaled = np.clip(thicknesses_scaled, -1, 1)
     roughnesses_scaled = np.clip(roughnesses_scaled, -1, 1)
     slds_scaled = np.clip(slds_scaled, -1, 1)
+    background_scaled = np.clip(background_scaled, -1, 1)
 
     params_scaled = np.concatenate([
         thicknesses_scaled,
         roughnesses_scaled,
-        slds_scaled
+        slds_scaled,
+        background_scaled
     ], axis=1)
 
     params = np.concatenate([
         thickness_array,
         roughness_array,
-        slds_array
+        slds_array,
+        background_array
     ], axis=1)
     print(params_scaled.shape)
 
@@ -60,8 +68,11 @@ def scale_params(thickness_array,roughness_array,slds_array):
     sld_min_torch = torch.full((Layer_count+1, ), sld_min)
     sld_max_torch = torch.full((Layer_count+1, ), sld_max)
 
-    lower_bounds = torch.cat([thickness_min_torch, roughness_min_torch, sld_min_torch], dim=0)
-    upper_bounds = torch.cat([thickness_max_torch, roughness_max_torch,sld_max_torch], dim=0)
+    background_min_torch = torch.full((1, ), background_min)
+    background_max_torch = torch.full((1, ), background_max)
+
+    lower_bounds = torch.cat([thickness_min_torch, roughness_min_torch, sld_min_torch,background_min_torch], dim=0)
+    upper_bounds = torch.cat([thickness_max_torch, roughness_max_torch,sld_max_torch,background_max_torch], dim=0)
 
     span = upper_bounds - lower_bounds
     bounds = (span,lower_bounds)
@@ -71,13 +82,13 @@ def scale_params(thickness_array,roughness_array,slds_array):
     return params_scaled, params, scaled_bounds, bounds
 
 
-def scaling_data(curves,q_array,thickness_array, roughness_array, slds_array):
+def scaling_data(curves,q_array,thickness_array, roughness_array, slds_array,background_array):
     from reflectorch.data_generation.scale_curves import LogAffineCurvesScaler
 
     curve_scaler = LogAffineCurvesScaler(weight=0.2, bias=1.0)
     scaled_curves = curve_scaler.scale(torch.tensor(curves, dtype=torch.float32))
 
-    params_scaled, params,scaled_bounds , bounds = scale_params(thickness_array,roughness_array,slds_array)
+    params_scaled, params,scaled_bounds , bounds = scale_params(thickness_array,roughness_array,slds_array,background_array)
 
     q_min = q_array.min()
     q_max = q_array.max()
@@ -94,12 +105,14 @@ def load_scale_data(folder_path, train_split = 0.95):
         data_file = pickle.load(f)
 
     print(data_file.columns)
+    print(data_file.iloc[0])
 
     curves = []
     thickness_array = []
     q_values = []
     roughness_array = []
     slds_array = []
+    background_array = []
 
     for _, row in data_file.iterrows():
         q = np.array(row['Q (Å-1)']).squeeze(-1)  
@@ -109,19 +122,22 @@ def load_scale_data(folder_path, train_split = 0.95):
         slds = slds.real.astype(np.float32)
         slds = slds * 1e6
         roughnesses = np.array(row['Roughnesses (Å)'])
-        roughnesses = np.array(row['Roughnesses (Å)'])
+        background = np.array(row['Background'])
 
         curves.append(intensity)
         q_values.append(q)
         slds_array.append(slds)
         roughness_array.append(roughnesses)
         thickness_array.append(thicknesses)
+        background_array.append(background)
 
     curves = np.stack(curves)
     thickness_array = np.array(thickness_array)
     q_values = np.stack(q_values)
     slds_array = np.array(slds_array)
     roughness_array = np.array(roughness_array)
+    background_array = np.array(background_array)
+    background_array = background_array[:, np.newaxis]
 
     thickness_array_flipped = thickness_array[::-1] 
     #q_values_flipped = q_values[::-1] 
@@ -142,6 +158,7 @@ def load_scale_data(folder_path, train_split = 0.95):
         'thickness_array': thickness_array_flipped[training_indexes],
         'roughness_array': roughness_array_flipped[training_indexes],
         'slds_array':      slds_array_flipped[training_indexes],
+        'background_array': background_array[training_indexes],
     }
     test_data = {
         'curves':    curves[testing_indexes],
@@ -149,13 +166,14 @@ def load_scale_data(folder_path, train_split = 0.95):
         'thickness_array': thickness_array_flipped[testing_indexes],
         'roughness_array': roughness_array_flipped[testing_indexes],
         'slds_array':      slds_array_flipped[testing_indexes],
+        'background_array': background_array[testing_indexes],
     }
 
     training_num_layers = thicknesses.shape[0]
     testing_num_layers = thicknesses.shape[0]
 
-    training_scaled_curves, training_q_scaled, training_params_scaled, training_params,training_scaled_bounds ,training_bounds = scaling_data(train_data["curves"],train_data["q_values"],train_data["thickness_array"], train_data["roughness_array"], train_data["slds_array"])
-    testing_scaled_curves, testing_q_scaled, testing_params_scaled, testing_params,testing_scaled_bounds ,testing_bounds = scaling_data(test_data["curves"],test_data["q_values"],test_data["thickness_array"], test_data["roughness_array"], test_data["slds_array"])
+    training_scaled_curves, training_q_scaled, training_params_scaled, training_params,training_scaled_bounds ,training_bounds = scaling_data(train_data["curves"],train_data["q_values"],train_data["thickness_array"], train_data["roughness_array"], train_data["slds_array"],train_data["background_array"])
+    testing_scaled_curves, testing_q_scaled, testing_params_scaled, testing_params,testing_scaled_bounds ,testing_bounds = scaling_data(test_data["curves"],test_data["q_values"],test_data["thickness_array"], test_data["roughness_array"], test_data["slds_array"],test_data['background_array'])
     
     training_data = (train_data["curves"], training_scaled_curves, training_params, training_params_scaled, train_data["q_values"], training_q_scaled, training_num_layers,training_scaled_bounds , training_bounds)
     testing_data = (test_data["curves"], testing_scaled_curves, testing_params, testing_params_scaled,test_data["q_values"], testing_q_scaled, testing_num_layers,testing_scaled_bounds , testing_bounds)

@@ -177,7 +177,6 @@ def parrat_reflectivity(depth_list, sld_list,input_angle_ray, layers, sigma = Ga
     
     return reflectivity_coe_list
 
-# ===Start===
 layers = make_layer_list(layers_string)
 top_layer = {"name": "air/water", "thickness": 5, "density": 0, "molar_mass": 1.0, "f1": 1.0, "f2": 1.0}
 
@@ -207,28 +206,24 @@ depth, sld_real, sld_imag = make_gaussian_sld_profile(slds,thicknesses)
 print(sld_real)
 print(sld_imag)
 
-plt.figure(figsize=(6, 4))
-plt.plot(depth,sld_real, label="Real", color = "blue")
-plt.plot(depth,sld_imag, label="imaginary", color = "orange")
-plt.xlabel("z (Å)")
-plt.ylabel("SLD [reÅ$^{-2}$]")
-plt.title("Scattering Length Density (SLD) Profile")
-plt.legend()
-plt.tight_layout()
-#plt.show()
-
 k_vec = 2*(math.pi) / x_ray_wavelen
-# === [STEP 6] Curve Graph ===
 reflectivity_coe_list=[]
 reflectivity_coe_list = parrat_reflectivity(thicknesses, slds, input_angle_ray*2,film_layers)
 
-fig, ax = plt.subplots(figsize=(6,4))
-ax.plot(np.arange(0+angle_step_size,input_angle_ray*2+angle_step_size,angle_step_size),reflectivity_coe_list, label="Reflectivity curve")
-ax.set_xlabel('2θ (degrees)')
-ax.set_ylabel('Reflectivity R')
-ax.set_title('XRR Reflectivity (log scale)')
-ax.set_yscale('log')
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+axes[0].plot(depth, sld_real, label="Real", color="blue")
+axes[0].plot(depth, sld_imag, label="Imaginary", color="orange")
+axes[0].set_xlabel("z (Å)")
+axes[0].set_ylabel("SLD [reÅ$^{-2}$]")
+axes[0].set_title("SLD Profile")
+axes[0].legend()
 
-plt.legend()
+axes[1].plot(np.arange(0+angle_step_size,input_angle_ray*2+angle_step_size,angle_step_size), reflectivity_coe_list, label="Reflectivity curve")
+axes[1].set_xlabel("2θ (degrees)")
+axes[1].set_ylabel("Reflectivity R")
+axes[1].set_title('XRR Reflectivity (log scale)')
+axes[1].set_yscale("log")
+axes[1].legend()
+
 plt.tight_layout()
 plt.show()

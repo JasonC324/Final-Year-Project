@@ -37,8 +37,10 @@ class RealDataTrainer(Trainer):
 
         base_loss = self.criterion(predicted_params, scaled_params)
         
-        #width_factors = (interval_width / 2) ** 2
-        width_factors = interval_width / 2
+        if isinstance(self.criterion, torch.nn.MSELoss):
+            width_factors = (interval_width / 2) ** 2
+        elif isinstance(self.criterion, torch.nn.L1Loss):
+            width_factors = interval_width / 2
 
         loss = (width_factors * base_loss).mean()
 
