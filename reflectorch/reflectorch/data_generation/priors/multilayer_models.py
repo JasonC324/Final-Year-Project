@@ -112,8 +112,8 @@ class CustomMultilayerModel(MultilayerModel):
         "d_sio2",                 # SiO₂ cap thickness
         "s_sio2",                 # SiO₂ roughness
         "s_si",                   # Si substrate roughness
-        "r_sio2",                 # SLD of SiO₂
-        "r_si",                   # SLD of Si
+        "sld_sio2",                 # SLD of SiO₂
+        "sld_si",                   # SLD of Si
     )
 
     def to_standard_params(self, parametrized_model: Tensor) -> dict:
@@ -348,8 +348,8 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
         d_sio2,                  # SiO₂ cap thickness
         s_sio2,                  # SiO₂ roughness
         s_si,                    # Si substrate roughness
-        r_sio2,                  # SLD of SiO₂
-        r_si,                    # SLD of Si
+        sld_sio2,                  # SLD of SiO₂
+        sld_si,                    # SLD of Si
     ) = parametrized_model.T
 
     batch_size = parametrized_model.shape[0]
@@ -387,7 +387,7 @@ def multilayer_model_abc(parametrized_model: Tensor, d_full_rel_max: int = 30):
 
     thicknesses = torch.cat([thickness_abc, d_sio2[:, None]], dim=-1)
     roughnesses = torch.cat([roughness_abc, s_sio2[:, None], s_si[:, None]], dim=-1)
-    slds = torch.cat([slds_final, r_sio2[:, None], r_si[:, None]], dim=-1)
+    slds = torch.cat([slds_final, sld_sio2[:, None], sld_si[:, None]], dim=-1)
 
     params = dict(
         thickness=thicknesses,

@@ -97,7 +97,7 @@ def scaling_data(curves,q_array,thickness_array, roughness_array, slds_array,bac
 
     return scaled_curves,q_scaled, params_scaled, params,scaled_bounds ,bounds
 
-def load_scale_data(folder_path, train_split = 0.95):
+def load_scale_data(folder_path, train_split = 0.95, layer_repeats = 1):
 
     print(folder_path)
 
@@ -124,12 +124,16 @@ def load_scale_data(folder_path, train_split = 0.95):
         roughnesses = np.array(row['Roughnesses (Å)'])
         background = np.array(row['Background'])
 
+        unique_layers = len(thicknesses)/layer_repeats
+        unique_layers = int(unique_layers)
+
         curves.append(intensity)
         q_values.append(q)
-        slds_array.append(slds)
-        roughness_array.append(roughnesses)
-        thickness_array.append(thicknesses)
+        slds_array.append(slds[:unique_layers+1])
+        roughness_array.append(roughnesses[:unique_layers+1])
+        thickness_array.append(thicknesses[:unique_layers])
         background_array.append(background)
+
 
     curves = np.stack(curves)
     thickness_array = np.array(thickness_array)
@@ -169,8 +173,8 @@ def load_scale_data(folder_path, train_split = 0.95):
         'background_array': background_array[testing_indexes],
     }
 
-    training_num_layers = thicknesses.shape[0]
-    testing_num_layers = thicknesses.shape[0]
+    training_num_layers = thickness_array.shape[1]
+    testing_num_layers = thickness_array.shape[1]
 
     training_scaled_curves, training_q_scaled, training_params_scaled, training_params,training_scaled_bounds ,training_bounds = scaling_data(train_data["curves"],train_data["q_values"],train_data["thickness_array"], train_data["roughness_array"], train_data["slds_array"],train_data["background_array"])
     testing_scaled_curves, testing_q_scaled, testing_params_scaled, testing_params,testing_scaled_bounds ,testing_bounds = scaling_data(test_data["curves"],test_data["q_values"],test_data["thickness_array"], test_data["roughness_array"], test_data["slds_array"],test_data['background_array'])
